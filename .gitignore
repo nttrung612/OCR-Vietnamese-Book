@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+# IDE
+.vscode/
+.idea/
+# Upload & build
+uploads/
+generated_pdfs/
+# Docker artefacts
+*.log
+.env

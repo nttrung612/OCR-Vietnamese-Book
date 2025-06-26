@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # Dịch vụ Redis
+  redis:
+    image: redis:6.2-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # Dịch vụ FastAPI (Web App)
+  web:
+    build: .
+    restart: always
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    volumes:
+      - ./uploads:/app/uploads
+      - ./generated_pdfs:/app/generated_pdfs
+    ports:
+      - "8000:8000"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+
+  # Dịch vụ Celery Worker
+  worker:
+    build: .
+    restart: always
+    command: celery -A celery_worker.celery_app worker --loglevel=INFO --concurrency=4 --pool=prefork --max-tasks-per-child=15
+    volumes:
+      - ./uploads:/app/uploads
+      - ./generated_pdfs:/app/generated_pdfs
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+      - web # Đảm bảo code đã được mount trước khi worker chạy
+
+  # Dịch vụ Flower (Giám sát)
+  flower:
+    build: .
+    restart: always
+    command: celery -A celery_worker.celery_app flower --port=5555 --broker=redis://redis:6379/0
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+      - worker
+
+volumes:
+  redis_data:

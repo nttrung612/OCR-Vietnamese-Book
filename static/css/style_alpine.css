@@ -1,0 +1,112 @@
+body {
+    padding-top: 60px; /* Account for sticky header height */
+    padding-bottom: 68px; /* Account for fixed footer height (adjust if footer height changes) */
+}
+
+/* --- Custom Scrollbar --- */
+.custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: #f1f1f1; /* Tailwind: bg-gray-100 or cool-gray-100 */
+    border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #cbd5e1; /* Tailwind: bg-slate-300 or cool-gray-300 */
+    border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8; /* Tailwind: bg-slate-400 or cool-gray-400 */
+}
+
+/* --- Page List Item Styling --- */
+.page-item.selected {
+    background-color: #e0f2fe; /* Tailwind: bg-sky-100 */
+    border-left-color: #0ea5e9 !important; /* Tailwind: border-l-sky-500. !important to ensure override if needed. */
+    /* You could add a subtle box-shadow here if desired for selected items */
+    /* box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06); */
+}
+
+/* --- Utility: Hide Default File Input --- */
+.hidden-file-input, /* For custom styled file inputs */
+input[type="file"].hidden { /* Common pattern to hide and use label */
+    display: none;
+}
+
+/* --- Layout Adjustments --- */
+.main-content-area {
+    /* Adjust based on your actual header (60px) and footer (e.g., p-3 is 12px + border = ~52-60px) heights and main padding */
+    /* Example: min-height for content to fill screen, preventing footer from floating up on short pages */
+    min-height: calc(100vh - 60px - 68px - 2rem); /* header_height - footer_height - main_container_py (p-4 = 2rem) */
+}
+
+.app-footer {
+    /* Specific styles for the footer if Tailwind's utility classes are not sufficient */
+    /* e.g., box-shadow: 0 -2px 5px rgba(0,0,0,0.05); */
+}
+
+/* --- Spinners --- */
+.btn-spinner {
+    animation: spin 1s linear infinite;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+/* Spinner for buttons with light text (e.g., primary, danger buttons) */
+.btn-spinner.light-text { /* Default spinner if not specified */
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+}
+
+/* Spinner for buttons with dark text (e.g., light-bg buttons) */
+.btn-spinner.dark-text {
+    border: 2px solid rgba(0, 0, 0, 0.2);
+    border-top-color: #333; /* Or a color that contrasts with the button's light bg */
+}
+
+/* Sizes for spinners */
+.btn-spinner.sm { /* Typically for text-sm or smaller buttons */
+    width: 0.875em;  /* 14px if base font is 16px */
+    height: 0.875em;
+    border-width: 2px;
+}
+.btn-spinner.md { /* Default size, for text-base buttons */
+    width: 1em;    /* 16px */
+    height: 1em;
+    border-width: 2px; /* Can be 3px for more prominent */
+}
+.btn-spinner.lg { /* For larger buttons */
+    width: 1.25em; /* 20px */
+    height: 1.25em;
+    border-width: 3px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* --- Image Display --- */
+.displayed-image {
+    touch-action: none; /* Improves touch interaction for panning on mobile, prevents default browser actions like swipe-to-navigate */
+    /* user-select: none; (Optional) Prevents image text selection during drag attempts */
+}
+
+/* --- Global Message Banner --- */
+.global-message-banner {
+    z-index: 5000; /* Ensure it's on top of most other content */
+    /* Tailwind classes already handle positioning and transitions */
+}
+
+/* --- Accessibility (Optional but Recommended) --- */
+.sr-only { /* For screen-reader only text, if you need it */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}

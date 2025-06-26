@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCR Sách Tiếng Việt</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style_alpine.css') }}"> <!-- File CSS tùy chỉnh của bạn -->
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: { DEFAULT: '#0ea5e9', hover: '#0284c7', dark: '#0c4a6e' },
+                        secondary: { DEFAULT: '#64748b', hover: '#475569' } // Thêm secondary hover
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-slate-100 font-sans" x-data="ocrApp()" @keyup.escape="if(currentViewedPage) { /* có thể đóng modal ảnh nếu có */ }">
+
+    <!-- Global Error/Success Message Area -->
+    <div x-show="globalMessage.text"
+         :class="{ 'bg-red-600 text-white': globalMessage.type === 'error', 'bg-green-600 text-white': globalMessage.type === 'success', 'bg-sky-600 text-white': globalMessage.type === 'info' }"
+         class="fixed top-0 left-0 right-0 p-3 text-center z-[6000] transition-opacity duration-300 shadow-lg"
+         x-transition:enter="ease-out duration-300" x-transition:enter-start="opacity-0 -translate-y-full" x-transition:enter-end="opacity-100 translate-y-0"
+         x-transition:leave="ease-in duration-300" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 -translate-y-full">
+        <span x-text="globalMessage.text"></span>
+        <button @click="globalMessage.text = ''" class="absolute top-1/2 right-4 transform -translate-y-1/2 text-xl font-bold hover:text-gray-200">×</button>
+    </div>
+
+    <!-- Header -->
+    <header class="bg-primary-dark text-white shadow-md sticky top-0 z-[100]">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <h1 class="text-2xl font-semibold">Trình OCR Sách</h1>
+            <div>
+                <label for="upload-book-input" class="bg-white text-primary-dark hover:bg-sky-100 font-semibold py-2 px-4 rounded-md shadow cursor-pointer transition duration-150 ease-in-out inline-flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clip-rule="evenodd" /></svg>
+                    Tải Ảnh Mới (Xóa cũ)
+                </label>
+                <input type="file" id="upload-book-input" @change="handleBookUpload($event)" multiple accept="image/*" class="hidden">
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="container mx-auto p-4 flex flex-col md:flex-row gap-4 main-content-area" style="height: calc(100vh - 60px - 2rem - 52px);">
+        <!-- Left Column: Page Management -->
+        <aside class="w-full md:w-1/4 bg-white p-4 rounded-lg shadow-md flex flex-col overflow-hidden">
+                        <!-- CHECKBOX CHỌN TẤT CẢ VÀ CÁC NÚT HÀNH ĐỘNG -->
+                        <div class="flex items-center space-x-2 mb-3">
+                            <!-- Checkbox Chọn Tất Cả/Bỏ Chọn Tất Cả với Label -->
+                            <div class="flex items-center flex-shrink-0">
+                                <input type="checkbox"
+                                       id="select-all-pages-checkbox"
+                                       @click="toggleSelectAll()"
+                                       :checked="areAllSelectablePagesChecked" 
+                                       :disabled="isSelectAllDisabled" 
+                                       class="h-4 w-4 text-primary border-gray-300 rounded focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed">
+                                <label for="select-all-pages-checkbox" 
+                                       class="ml-1.5 text-xs font-medium text-slate-600 cursor-pointer select-none"
+                                       :class="{'opacity-50 cursor-not-allowed': isSelectAllDisabled }">
+                                    Tất cả (<span x-text="selectablePageIndices.length"></span>) 
+                                </label>
+                            </div>
+            
+                            <div class="flex-grow"></div> <!-- Đẩy các nút khác sang phải -->
+            
+                            <label for="add-page-files-input" title="Thêm trang vào danh sách hiện tại" class="bg-primary hover:bg-primary-hover text-white font-semibold py-1.5 px-2.5 rounded-md shadow text-xs cursor-pointer transition duration-150 inline-flex items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+                                Thêm
+                            </label>
+                            <input type="file" id="add-page-files-input" @change="addFilesToPages($event.target.files); $event.target.value = null" multiple accept="image/*" class="hidden">
+            
+                            <button @click="removeSelectedPages()" title="Xóa các trang đã chọn"
+                                    :disabled="selectedPagesIndices.length === 0 || isProcessingAnyPage()"
+                                    class="bg-red-500 hover:bg-red-600 text-white font-semibold py-1.5 px-2.5 rounded-md shadow text-xs disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 inline-flex items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                Xóa
+                            </button>
+                        </div>
+                        <!-- KẾT THÚC CHECKBOX VÀ NÚT HÀNH ĐỘNG -->
+            
+            <div class="mb-3">
+                <label for="ocr-language-select" class="block text-sm font-medium text-slate-700 mb-1">Ngôn ngữ OCR:</label>
+                <select id="ocr-language-select" x-model="ocrLanguage" class="w-full p-2 border border-slate-300 rounded-md shadow-sm focus:ring-primary focus:border-primary text-sm">
+                    <option value="vie">Tiếng Việt (vie)</option>
+                    <option value="eng">Tiếng Anh (eng)</option>
+                    <option value="vie+eng">Tiếng Việt + Tiếng Anh</option>
+                </select>
+            </div>
+
+            <div class="space-y-2 mb-3">
+                <button @click="ocrSelectedOrPendingPages(true)"
+                        :disabled="selectedPagesIndices.filter(index => pages[index] && (pages[index].status === 'pending_ocr' || pages[index].status === 'error_ocr')).length === 0 || isProcessingAnyPage()"
+                        class="w-full bg-sky-500 hover:bg-sky-600 text-white font-semibold py-2 px-3 rounded-md shadow text-sm disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 flex items-center justify-center">
+                    <svg class="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.042 21.672L13.684 16.6m0 0l-2.51 2.225.569-2.474-1.905-1.872 2.733-.396L13.684 16.6zm0 0L16.32 12l2.733-.396-1.905-1.872.569 2.474-2.51 2.225zM18 8.25V18a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18V4.75A2.25 2.25 0 015.25 2.5h10.5M18 8.25h-3.375a1.125 1.125 0 01-1.125-1.125V3.75M16.5 3.75L18 2.25" /></svg>
+                    OCR Đã Chọn (<span x-text="selectedPagesIndices.filter(index => pages[index] && (pages[index].status === 'pending_ocr' || pages[index].status === 'error_ocr')).length"></span>)
+                </button>
+                <button @click="ocrSelectedOrPendingPages(false)"
+                        :disabled="pages.filter(page => page.tempFilename && (page.status === 'pending_ocr' || page.status === 'error_ocr')).length === 0 || isProcessingAnyPage()"
+                        class="w-full bg-teal-500 hover:bg-teal-600 text-white font-semibold py-2 px-3 rounded-md shadow text-sm disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 flex items-center justify-center">
+                     <svg class="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7" /><path stroke-linecap="round" stroke-linejoin="round" d="M15.042 21.672L13.684 16.6m0 0l-2.51 2.225.569-2.474-1.905-1.872 2.733-.396L13.684 16.6zm0 0L16.32 12l2.733-.396-1.905-1.872.569 2.474-2.51 2.225zM18 8.25V18a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18V4.75A2.25 2.25 0 015.25 2.5h10.5M18 8.25h-3.375a1.125 1.125 0 01-1.125-1.125V3.75M16.5 3.75L18 2.25" /></svg>
+                    OCR Tất Cả Chưa Xử Lý (<span x-text="pages.filter(page => page.tempFilename && (page.status === 'pending_ocr' || page.status === 'error_ocr')).length"></span>)
+                </button>
+            </div>
+            
+            <div class="flex-grow overflow-y-auto pr-1 -mr-1 custom-scrollbar">
+                <p x-show="pages.length === 0 && !isUploading" class="text-slate-500 text-center py-10">Chưa có trang nào.</p>
+                <p x-show="isUploading" class="text-slate-500 text-center py-10 flex items-center justify-center">
+                    <svg class="animate-spin h-5 w-5 text-primary mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    Đang tải lên...
+                </p>
+                <ul x-show="pages.length > 0" class="space-y-1.5">
+                    <template x-for="(page, index) in pages" :key="page.id">
+                        <li @click="selectPage(index)"
+                            :class="{ 'selected': currentViewedPageIndex === index, 'opacity-60 cursor-not-allowed': page.status === 'processing_ocr' || page.status === 'processing_upload' }"
+                            class="page-item flex items-center p-2 border-l-4 border-transparent hover:bg-sky-50 cursor-pointer rounded-r-md transition duration-150 group">
+                            <input type="checkbox" @click.stop :value="index" x-model="selectedPagesIndices" 
+                                   :disabled="page.status === 'processing_ocr' || page.status === 'processing_upload'"
+                                   class="mr-2 h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed">
+                            <img :src="page.thumbnailUrl" alt="thumbnail" class="w-10 h-12 object-cover rounded-sm mr-2.5 border border-slate-200 group-hover:border-primary-light transition">
+                            <div class="flex-grow overflow-hidden">
+                                <p class="text-sm font-medium text-slate-700 truncate group-hover:text-primary transition" x-text="page.originalFilename" :title="page.originalFilename"></p>
+                                <p class="text-xs text-slate-500" x-text="page.statusText"></p>
+                            </div>
+                            <div x-show="page.status === 'processing_ocr' || page.status === 'processing_upload'" class="ml-auto flex-shrink-0">
+                                <svg class="animate-spin h-4 w-4 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            </div>
+                        </li>
+                    </template>
+                </ul>
+            </div>
+        </aside>
+
+        <!-- Middle Column: Image Display -->
+        <section class="w-full md:w-1/2 bg-white p-4 rounded-lg shadow-md flex flex-col overflow-hidden">
+            <div class="flex justify-between items-center border-b pb-2 mb-3">
+                <h2 class="text-xl font-semibold text-slate-700 truncate" x-text="currentViewedPage ? currentViewedPage.originalFilename : 'Chọn trang để xem'" :title="currentViewedPage?.originalFilename"></h2>
+                <div class="flex space-x-1" x-show="currentViewedPage">
+                    <button @click="zoomImage(0.1)" title="Phóng to" class="p-1.5 text-slate-500 hover:text-primary hover:bg-slate-100 rounded transition"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" /></svg></button>
+                    <button @click="zoomImage(-0.1)" title="Thu nhỏ" class="p-1.5 text-slate-500 hover:text-primary hover:bg-slate-100 rounded transition"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 10a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1z" clip-rule="evenodd" /></svg></button>
+                    <button @click="resetZoom()" title="Kích thước gốc" class="p-1.5 text-slate-500 hover:text-primary hover:bg-slate-100 rounded transition"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 1v4m0 0h-4m4 0l-5-5" /></svg></button>
+                </div>
+            </div>
+            <div class="flex-grow flex items-center justify-center bg-slate-100 rounded overflow-auto p-2 relative custom-scrollbar">
+                <img x-show="currentViewedPage?.imageUrl" :src="currentViewedPage?.imageUrl" alt="Trang sách"
+                     class="max-w-full max-h-full object-contain transition-transform duration-150 displayed-image"
+                     :style="`transform: scale(${imageZoomLevel}); cursor: grab;`" id="displayedImage"
+                     @mousedown="startPan($event)" @mousemove="panImage($event)" @mouseup="endPan()" @mouseleave="endPan()">
+                <p x-show="!currentViewedPage && !isProcessingAnyPage() && pages.length > 0" class="text-slate-500">Chọn một trang từ danh sách.</p>
+                <p x-show="pages.length === 0 && !isUploading" class="text-slate-500">Tải ảnh lên để bắt đầu.</p>
+
+                <div x-show="currentViewedPage && currentViewedPage.status === 'pending_ocr'" class="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center backdrop-blur-sm">
+                    <button @click="startOcrForCurrentPage()" class="bg-primary hover:bg-primary-hover text-white font-bold py-3 px-6 rounded-lg shadow-lg text-lg transition duration-150 flex items-center">
+                        <svg class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.042 21.672L13.684 16.6m0 0l-2.51 2.225.569-2.474-1.905-1.872 2.733-.396L13.684 16.6zm0 0L16.32 12l2.733-.396-1.905-1.872.569 2.474-2.51 2.225zM18 8.25V18a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18V4.75A2.25 2.25 0 015.25 2.5h10.5M18 8.25h-3.375a1.125 1.125 0 01-1.125-1.125V3.75M16.5 3.75L18 2.25" /></svg>
+                        OCR Trang này
+                    </button>
+                </div>
+                <div x-show="currentViewedPage && currentViewedPage.status === 'processing_ocr'" class="absolute inset-0 bg-white bg-opacity-80 flex flex-col items-center justify-center backdrop-blur-sm">
+                    <svg class="animate-spin h-10 w-10 text-primary mb-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <p class="text-slate-600 font-semibold text-sm" x-text="currentViewedPage.statusText"></p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right Column: OCR Text Display -->
+        <aside class="w-full md:w-1/4 bg-white p-4 rounded-lg shadow-md flex flex-col overflow-hidden">
+            <div class="flex justify-between items-center border-b pb-2 mb-3">
+                <h2 class="text-xl font-semibold text-slate-700">Nội dung Văn bản</h2>
+                <button @click="copyOcrText()" x-show="currentViewedPage?.ocrText && currentViewedPage?.status === 'ocr_done'" title="Sao chép văn bản" class="p-1.5 text-slate-500 hover:text-primary hover:bg-slate-100 rounded transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" /><path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" /></svg>
+                </button>
+            </div>
+            <textarea x-model="currentViewedPageOcrText" @input="ocrTextChangedManually = true"
+                      placeholder="Nội dung OCR sẽ xuất hiện ở đây sau khi xử lý."
+                      class="flex-grow w-full p-2.5 border border-slate-300 rounded-md focus:ring-primary focus:border-primary resize-none text-sm leading-relaxed custom-scrollbar"
+                      :disabled="!currentViewedPage || currentViewedPage?.status !== 'ocr_done'"></textarea>
+            <button @click="saveOcrChanges()" x-show="currentViewedPage?.status === 'ocr_done' && ocrTextChangedManually"
+                    class="mt-3 w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-md shadow transition duration-150 text-sm">
+                Lưu Chỉnh Sửa (Client)
+            </button>
+        </aside>
+    </main>
+
+    <!-- Footer Action Button -->
+    <footer class="fixed bottom-0 left-0 right-0 bg-slate-200 p-3 border-t border-slate-300 shadow-inner z-[50] app-footer">
+        <div class="container mx-auto flex flex-col sm:flex-row justify-end items-center gap-2 sm:gap-3">
+             <button @click="downloadSinglePagePdf()"
+                    :disabled="!currentViewedPage || currentViewedPage.status !== 'ocr_done' || isGeneratingSinglePdf"
+                    class="w-full sm:w-auto bg-secondary-DEFAULT hover:bg-secondary-hover text-white font-bold py-2 px-4 rounded-lg shadow-md text-sm disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 flex items-center justify-center">
+                <svg class="w-5 h-5 mr-1.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m.75 12l3 3m0 0l3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+                PDF Trang Này
+                <span x-show="isGeneratingSinglePdf" class="ml-1.5 btn-spinner sm"></span>
+            </button>
+            <button @click="downloadMergedSearchablePdf()" 
+                    :disabled="pages.filter(p => p.tempFilename).length === 0 || isProcessingAnyPage() || isGeneratingMergedPdf"
+                    class="w-full sm:w-auto bg-primary hover:bg-primary-hover text-white font-bold py-2 px-5 rounded-lg shadow-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 flex items-center justify-center">
+                <svg class="h-5 w-5 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                PDF Toàn Bộ (<span x-text="pages.filter(p => p.tempFilename).length"></span>)
+                <span x-show="isGeneratingMergedPdf" class="ml-1.5 btn-spinner sm"></span>
+            </button>
+        </div>
+    </footer>
+    <script src="{{ url_for('static', path='js/script_alpine.js') }}"></script>
+</body>
+</html>
