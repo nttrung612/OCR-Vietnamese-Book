@@ -270,7 +270,6 @@ async def ocr_multiple_pages_async(payload: OCRMultiplePagesPayload):
             
     successful_submissions = [t for t in submitted_tasks_info if t["status"] == "submitted"]
     if not successful_submissions:
-        # Check if any "file not found" errors occurred before raising 500
         if any(info.get("detail") == "File not found on server." for info in submitted_tasks_info):
              raise HTTPException(status_code=404, detail="One or more image files not found on server for OCR.")
         raise HTTPException(status_code=500, detail="Failed to submit any OCR tasks to Celery.")

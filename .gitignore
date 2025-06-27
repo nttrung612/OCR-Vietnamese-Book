@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+main_draft.py
 # IDE
 .vscode/
 .idea/
@@ -11,3 +12,6 @@ generated_pdfs/
 # Docker artefacts
 *.log
 .env
+# mermaid file
+sq1.mmd
+sq2.mmd
