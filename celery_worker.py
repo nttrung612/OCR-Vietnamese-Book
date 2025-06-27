@@ -20,7 +20,6 @@ except pytesseract.TesseractNotFoundError:
         pytesseract.pytesseract.tesseract_cmd = tesseract_path_linux
         print(f"Celery Worker: Tesseract path set to: {tesseract_path_linux}")
     else:
-        # Thử tìm trong PATH nếu đường dẫn cụ thể không có
         if shutil.which("tesseract"):
             pytesseract.pytesseract.tesseract_cmd = "tesseract"
             print("Celery Worker: Tesseract found in system PATH.")
@@ -45,28 +44,25 @@ celery_app = Celery(
     'ocr_tasks',
     broker=CELERY_BROKER_URL,
     backend=CELERY_RESULT_BACKEND,
-    include=['celery_worker'] # Để Celery tự động tìm các task trong file này
+    include=['celery_worker']
 )
 
-# Cấu hình quan trọng cho sự ổn định và hiệu suất
 celery_app.conf.update(
     task_serializer='json',
     result_serializer='json',
     accept_content=['json'],
     timezone='Asia/Ho_Chi_Minh',
     enable_utc=True,
-    task_acks_late=True,          # Xác nhận task sau khi hoàn thành (an toàn hơn)
-    worker_prefetch_multiplier=1,  # Mỗi worker process chỉ lấy 1 task tại một thời điểm (tốt cho task dài)
-    
-    # Giới hạn tài nguyên để tránh treo và rò rỉ bộ nhớ
-    worker_max_tasks_per_child=10, # Khởi động lại worker con sau 10 task để giải phóng bộ nhớ
-    task_soft_time_limit=300,      # Báo lỗi SoftTimeLimitExceeded sau 5 phút
-    task_time_limit=360,           # kill task bằng HardTimeLimitExceeded sau 6 phút
+    task_acks_late=True,           # tasks are acknowledged after execution
+    worker_prefetch_multiplier=1,  # each worker fetches one task at a time
+    worker_max_tasks_per_child=10, # reset worker after processing 10 tasks to avoid memory leaks
+    task_soft_time_limit=300,
+    task_time_limit=360,
 )
 
-# --- HELPER FUNCTIONS ---
+# ----------------------- HELPER FUNCTIONS -----------------------------
+
 def cleanup_files_celery(files_to_delete: List[str]):
-    """Dọn dẹp danh sách các file dựa trên đường dẫn string."""
     print(f"Celery Cleanup: Attempting to delete {len(files_to_delete)} files.")
     for f_path_str in files_to_delete:
         f_path = Path(f_path_str)
@@ -77,7 +73,6 @@ def cleanup_files_celery(files_to_delete: List[str]):
             print(f"Celery Cleanup Error deleting {f_path}: {e}")
 
 def create_searchable_pdf_page_for_celery(image_path_str: str, lang: str = 'vie') -> bytes:
-    """Tạo nội dung bytes cho một trang PDF tìm kiếm được."""
     image_path = Path(image_path_str)
     try:
         pdf_bytes = pytesseract.image_to_pdf_or_hocr(str(image_path), lang=lang, extension='pdf')
@@ -85,16 +80,13 @@ def create_searchable_pdf_page_for_celery(image_path_str: str, lang: str = 'vie'
         return pdf_bytes
     except Exception as e:
         print(f"Celery Error (create_searchable_pdf_page_for_celery) for {image_path}: {e}")
-        raise # Ném lại lỗi để task cha bắt được
+        raise
 
 
-# --- CELERY TASKS ---
+# --------------------------- CELERY TASKS --------------------------------
 
 @celery_app.task(bind=True, name='ocr_tasks.ocr_single_image', acks_late=True)
 def ocr_single_image_task(self, image_path_str: str, lang: str, original_filename: str = None, temp_filename: str = None):
-    """
-    Task OCR ổn định cho một ảnh duy nhất.
-    """
     task_id = self.request.id
     print(f"\n[TASK ID: {task_id}] Starting OCR for: {original_filename or temp_filename}")
     image_path = Path(image_path_str)
@@ -105,10 +97,9 @@ def ocr_single_image_task(self, image_path_str: str, lang: str, original_filenam
         return {"status": "failure", "error": error_msg, "temp_filename": temp_filename}
     try:
         with Image.open(image_path) as img:
-            img.verify() # Kiểm tra tính hợp lệ của ảnh
+            img.verify()
             img_reopened = Image.open(image_path)
             
-            # Giới hạn kích thước ảnh để tránh lỗi hết bộ nhớ
             MAX_PIXELS = 100_000_000 # 100 Megapixels
             if img_reopened.width * img_reopened.height > MAX_PIXELS:
                 raise ValueError(f"Image too large ({img_reopened.width}x{img_reopened.height}).")
@@ -130,9 +121,6 @@ def ocr_single_image_task(self, image_path_str: str, lang: str, original_filenam
 
 @celery_app.task(name='ocr_tasks.create_single_pdf_page')
 def create_single_pdf_page_task(image_path_str: str, lang: str) -> Optional[str]:
-    """
-    [TASK CON] Tạo một trang PDF, lưu vào file tạm và trả về ĐƯỜNG DẪN.
-    """
     print(f"[PDF Page Task] Processing: {Path(image_path_str).name}")
     try:
         pdf_bytes = create_searchable_pdf_page_for_celery(image_path_str, lang)
@@ -151,9 +139,6 @@ def create_single_pdf_page_task(image_path_str: str, lang: str) -> Optional[str]
 
 @celery_app.task(bind=True, name='ocr_tasks.merge_pdf_pages')
 def merge_pdf_pages_task(self, pdf_page_paths: list, task_id_for_filename: str, source_image_paths_to_cleanup: list[str]):
-    """
-    [TASK CALLBACK] Nhận danh sách đường dẫn các trang PDF, ghép chúng lại.
-    """
     print(f"[Merge Task] Received {len(pdf_page_paths)} page paths for main task {task_id_for_filename}")
     
     valid_pdf_page_paths = [path for path in pdf_page_paths if path is not None]
@@ -162,7 +147,7 @@ def merge_pdf_pages_task(self, pdf_page_paths: list, task_id_for_filename: str, 
     if not valid_pdf_page_paths:
         error_msg = "All sub-tasks for PDF page generation failed."
         print(f"[Merge Task] {error_msg}")
-        raise Ignore() # Bỏ qua task này, không báo lỗi, không làm gì cả.
+        raise Ignore()
 
     final_pdf_filename = f"merged_book_{task_id_for_filename}.pdf"
     final_pdf_path = PDF_DIR / final_pdf_filename
@@ -184,7 +169,6 @@ def merge_pdf_pages_task(self, pdf_page_paths: list, task_id_for_filename: str, 
         
         print(f"[Merge Task] Merged PDF created at: {final_pdf_path}")
 
-        # Dọn dẹp
         cleanup_files_celery(source_image_paths_to_cleanup)
         cleanup_files_celery(valid_pdf_page_paths)
         
@@ -196,19 +180,16 @@ def merge_pdf_pages_task(self, pdf_page_paths: list, task_id_for_filename: str, 
     except Exception as e:
         error_msg = f"Failed to merge final PDF: {e}"
         print(f"[Merge Task] {error_msg}")
-        # Dọn dẹp tất cả file tạm nếu merge lỗi
+        # clean files if merge fails
         cleanup_files_celery(source_image_paths_to_cleanup)
         cleanup_files_celery(valid_pdf_page_paths)
         if final_pdf_path.exists():
             os.remove(final_pdf_path)
-        raise # Ném lỗi để task chính (workflow) biết là đã thất bại
+        raise
 
 
 @celery_app.task(bind=True, name='ocr_tasks.process_and_generate_merged_pdf')
 def process_and_generate_merged_pdf_task(self, files_to_process: list[dict]):
-    """
-    [TASK CHÍNH] Điều phối quá trình tạo PDF tổng hợp.
-    """
     from celery import group, chain
 
     task_id = self.request.id
